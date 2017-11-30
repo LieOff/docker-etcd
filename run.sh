@@ -65,7 +65,7 @@ if [[ $? -ne 0 ]]; then
     SECONDS=0
     echo "waiting for the min seeds count ($MIN_SEEDS_COUNT)"
     while [[ $nbt -lt ${MIN_SEEDS_COUNT} ]]; do
-      tips=$(dig +short tasks.$SERVICE_NAME)
+      tips=$(dig +short $SERVICE_NAME)
       nbt=$(echo $tips | wc -w)
       [[ $SECONDS -gt 30 ]] && break
     done
