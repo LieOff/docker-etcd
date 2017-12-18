@@ -127,7 +127,7 @@ if [[ -n "$TEST" ]]; then
   fi
 else
   if [ "${ARGS:0:1}" = '-' ]; then
-    if [[ -f "/backup/.force-restore" ]] then
+    if [[ -f "/backup/.force-restore" ]]; then
       echo "Forcing restore of data from /backup/snapshot.db"
       rm /backup/.force-restore
       ETCDCTL_API=3 etcdctl snapshot restore /backup/snapshot.db $RESTOREARGS
