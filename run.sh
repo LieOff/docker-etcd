@@ -13,7 +13,7 @@ NODE_NAME=default
 LOCK_FILE=/data/ctr.lck
 
 ARGS="--data-dir=/data"
-RESTOREARGS=""
+RESTOREARGS="--data-dir=/data"
 echo "$@" | grep -q -- "-auto-compaction-retention"
 if [[ $? -ne 0 ]]; then
   echo "setting default auto compaction retention"
