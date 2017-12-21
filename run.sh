@@ -23,13 +23,11 @@ echo "$@" | grep -q -- "-listen-peers-urls"
 if [[ $? -ne 0 ]]; then
   echo "setting default urls for peers"
   ARGS="$ARGS --listen-peer-urls=http://0.0.0.0:7001,http://0.0.0.0:2380"
-  RESTOREARGS="$RESTOREARGS --listen-peer-urls=http://0.0.0.0:7001,http://0.0.0.0:2380"
 fi
 echo "$@" | grep -q -- "-listen-client-urls"
 if [[ $? -ne 0 ]]; then
   echo "setting default urls for client"
   ARGS="$ARGS --listen-client-urls=http://0.0.0.0:4001,http://0.0.0.0:2379"
-  RESTOREARGS="$RESTOREARGS --listen-client-urls=http://0.0.0.0:4001,http://0.0.0.0:2379"
 fi
 echo "$@" | grep -q -- "-initial-advertise-peer-urls"
 if [[ $? -ne 0 ]]; then
@@ -99,7 +97,7 @@ if [[ $? -ne 0 ]]; then
   fi
   echo "initial cluster is $INITIAL_CLUSTER"
   ARGS="$ARGS --name $NODE_NAME --initial-advertise-peer-urls http://$cip:2380 --initial-cluster $INITIAL_CLUSTER --initial-cluster-token $INITIAL_CLUSTER_TOKEN --initial-cluster-state $INITIAL_CLUSTER_STATE"
-  RESTOREARGS="$RESTOREARGS --name $NODE_NAME --initial-advertise-peer-urls http://$cip:2380 --initial-cluster $INITIAL_CLUSTER --initial-cluster-token $INITIAL_CLUSTER_TOKEN --initial-cluster-state $INITIAL_CLUSTER_STATE --skip-hash-check"
+  RESTOREARGS="$RESTOREARGS --name $NODE_NAME --initial-advertise-peer-urls http://$cip:2380 --initial-cluster $INITIAL_CLUSTER --initial-cluster-token $INITIAL_CLUSTER_TOKEN --skip-hash-check"
 fi
 echo "$@" | grep -q -- "-advertise-client-urls"
 if [[ $? -ne 0 ]]; then
@@ -138,12 +136,12 @@ else
   if [ "${ARGS:0:1}" = '-' ]; then
     if [[ -f "/backup/.force-restore" ]]; then
       echo "Forcing restore of data from /backup/snapshot.db"
-      rm /backup/.force-restore
       ETCDCTL_API=3 etcdctl snapshot restore /backup/snapshot.db $RESTOREARGS
       if [ $? -ne 0 ]; then
         echo "failed"
         exit 1
       fi
+      rm /backup/.force-restore
     fi
     exec flock -xn $LOCK_FILE /bin/etcd $ARGS
   else
