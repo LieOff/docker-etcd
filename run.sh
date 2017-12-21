@@ -48,6 +48,15 @@ if [[ $? -ne 0 ]]; then
   echo "$cip" | egrep -qe "^[0-9\.]+$"
   if [ $? -ne 0 ]; then
     # if not resolved by Docker dns, there should be an entry in /etc/hosts
+    echo "warning: unable to resolve this container's IP ($cip), checking rancher metadata-service"
+    cip=$(curl http://rancher-metadata/2015-12-19/self/container/primary_ip)
+    echo "Responso is: $cip"
+  else
+    echo "resolved IP: $cip"
+  fi
+  echo "$cip" | egrep -qe "^[0-9\.]+$"
+  if [ $? -ne 0 ]; then
+    # if not resolved by Docker dns, there should be an entry in /etc/hosts
     echo "warning: unable to resolve this container's IP ($cip), switching back to /etc/hosts"
     cip=$(grep $(hostname) /etc/hosts |awk '{print $1}' | head -1)
     echo "found IP in /etc/hosts: $cip"
