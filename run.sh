@@ -13,7 +13,7 @@ NODE_NAME=default
 LOCK_FILE=/data/ctr.lck
 
 ARGS="--data-dir=/data"
-RESTOREARGS="--data-dir=/data"
+RESTOREARGS="--data-dir=/data-restore"
 echo "$@" | grep -q -- "-auto-compaction-retention"
 if [[ $? -ne 0 ]]; then
   echo "setting default auto compaction retention"
@@ -141,6 +141,9 @@ else
         echo "failed"
         exit 1
       fi
+      rm -Rf /data/*
+      mv /data-restore/* /data/.
+      rm -Rf /data-restore
       rm /backup/.force-restore
     fi
     exec flock -xn $LOCK_FILE /bin/etcd $ARGS
