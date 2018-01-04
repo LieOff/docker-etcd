@@ -7,7 +7,6 @@ echo -n "$(date +%F\ %T) I | Running "
 /bin/etcd --version
 
 INITIAL_CLUSTER_TOKEN=etcd-cluster
-INITIAL_CLUSTER_STATE=new
 NODE_NAME=default
 # lock file to make sure we're not running multiple containers on the same volume
 LOCK_FILE=/data/ctr.lck
