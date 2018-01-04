@@ -16,6 +16,7 @@ EXPOSE 2379 2380 4001 7001
 
 ENV MIN_SEEDS_COUNT 2
 ENV ETCDCTL_API=3
+ENV INITIAL_CLUSTER_STATE new
 
 #HEALTHCHECK --interval=5s --retries=3 --timeout=10s CMD ETCDCTL_API=3 /bin/etcdctl --endpoints=http://127.0.0.1:2379 get ping | grep -q pong
 
