@@ -46,8 +46,8 @@ if [[ $? -ne 0 ]]; then
   if [ $? -ne 0 ]; then
     # if not resolved by Docker dns, there should be an entry in /etc/hosts
     echo "warning: unable to resolve this container's IP ($cip), checking rancher metadata-service"
-    cip=$(curl http://rancher-metadata/2015-12-19/self/container/primary_ip)
-    echo "Responso is: $cip"
+    cip=$(curl -s http://rancher-metadata/2015-12-19/self/container/primary_ip)
+    echo "Response is: $cip"
   else
     echo "resolved IP: $cip"
   fi
@@ -81,7 +81,22 @@ if [[ $? -ne 0 ]]; then
     done
     if [[ $nbt -lt ${MIN_SEEDS_COUNT} ]]; then
       echo "error: couldn't reach the min seeds count after $SECONDS sec, only $nbt tasks were found"
-      exit 1
+      while [[ $nbt -lt ${MIN_SEEDS_COUNT} ]]; do
+        conts=$(curl -s rancher-metadata/latest/self/service/containers | cut -d = -f 2)
+        nbt=$(echo $conts | wc -w)
+        echo $conts
+        [[ $SECONDS -gt 30 ]] && break
+      done
+      if [[ $nbt -lt ${MIN_SEEDS_COUNT} ]]; then
+        echo "error: couldn't reach the min seeds count after $SECONDS sec, only $nbt tasks were found"
+      else
+        tips=""
+        for cont in $conts; do
+          ip=$(curl -s rancher-metadata/latest/containers/$cont/primary_ip)
+          tips="$tips $ip"
+          echo "Found $ip in rancher"
+        done
+      fi
     else
       echo "$nbt seeds found"
     fi
