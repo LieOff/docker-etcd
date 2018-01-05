@@ -95,7 +95,14 @@ if [[ $? -ne 0 ]]; then
       INITIAL_CLUSTER="default=http://$cip:2380"
   fi
   echo "initial cluster is $INITIAL_CLUSTER"
-  ARGS="$ARGS --name $NODE_NAME --initial-advertise-peer-urls http://$cip:2380 --initial-cluster $INITIAL_CLUSTER --initial-cluster-token $INITIAL_CLUSTER_TOKEN --initial-cluster-state $INITIAL_CLUSTER_STATE"
+  if [[ -f "/backup/.force-restore" ]]; then
+    echo "Forcing restore of data from /backup/snapshot.db"
+  fi
+  if [[ -f "/backup/.force-restore" ]]; then
+    ARGS="$ARGS --name $NODE_NAME --initial-advertise-peer-urls http://$cip:2380 --initial-cluster $INITIAL_CLUSTER --initial-cluster-token $INITIAL_CLUSTER_TOKEN --initial-cluster-state new"
+  else
+    ARGS="$ARGS --name $NODE_NAME --initial-advertise-peer-urls http://$cip:2380 --initial-cluster $INITIAL_CLUSTER --initial-cluster-token $INITIAL_CLUSTER_TOKEN --initial-cluster-state $INITIAL_CLUSTER_STATE"  
+  fi
   RESTOREARGS="$RESTOREARGS --name $NODE_NAME --initial-advertise-peer-urls http://$cip:2380 --initial-cluster $INITIAL_CLUSTER --initial-cluster-token $INITIAL_CLUSTER_TOKEN --skip-hash-check"
 fi
 echo "$@" | grep -q -- "-advertise-client-urls"
