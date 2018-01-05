@@ -76,6 +76,7 @@ if [[ $? -ne 0 ]]; then
     while [[ $nbt -lt ${MIN_SEEDS_COUNT} ]]; do
       tips=$(dig +short $SERVICE_NAME)
       nbt=$(echo $tips | wc -w)
+      echo $tips
       [[ $SECONDS -gt 30 ]] && break
     done
     if [[ $nbt -lt ${MIN_SEEDS_COUNT} ]]; then
