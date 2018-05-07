@@ -7,12 +7,12 @@ echo -n "$(date +%F\ %T) I | Running "
 /bin/etcd --version
 
 INITIAL_CLUSTER_TOKEN=etcd-cluster
+INITIAL_CLUSTER_STATE=new
 NODE_NAME=default
 # lock file to make sure we're not running multiple containers on the same volume
 LOCK_FILE=/data/ctr.lck
 
 ARGS="--data-dir=/data"
-RESTOREARGS="--data-dir=/data-restore"
 echo "$@" | grep -q -- "-auto-compaction-retention"
 if [[ $? -ne 0 ]]; then
   echo "setting default auto compaction retention"
@@ -45,15 +45,6 @@ if [[ $? -ne 0 ]]; then
   echo "$cip" | egrep -qe "^[0-9\.]+$"
   if [ $? -ne 0 ]; then
     # if not resolved by Docker dns, there should be an entry in /etc/hosts
-    echo "warning: unable to resolve this container's IP ($cip), checking rancher metadata-service"
-    cip=$(curl -s http://rancher-metadata/2015-12-19/self/container/primary_ip)
-    echo "Response is: $cip"
-  else
-    echo "resolved IP: $cip"
-  fi
-  echo "$cip" | egrep -qe "^[0-9\.]+$"
-  if [ $? -ne 0 ]; then
-    # if not resolved by Docker dns, there should be an entry in /etc/hosts
     echo "warning: unable to resolve this container's IP ($cip), switching back to /etc/hosts"
     cip=$(grep $(hostname) /etc/hosts |awk '{print $1}' | head -1)
     echo "found IP in /etc/hosts: $cip"
@@ -67,6 +58,7 @@ if [[ $? -ne 0 ]]; then
   fi
   if [[ -n "$SERVICE_NAME" ]]; then
     INITIAL_CLUSTER_TOKEN=$SERVICE_NAME
+
     echo "building a seeds list for cluster $SERVICE_NAME"
     # IP of the service tasks
     typeset -i nbt
@@ -74,29 +66,13 @@ if [[ $? -ne 0 ]]; then
     SECONDS=0
     echo "waiting for the min seeds count ($MIN_SEEDS_COUNT)"
     while [[ $nbt -lt ${MIN_SEEDS_COUNT} ]]; do
-      tips=$(dig +short $SERVICE_NAME)
+      tips=$(dig +short tasks.$SERVICE_NAME)
       nbt=$(echo $tips | wc -w)
-      echo $tips
       [[ $SECONDS -gt 30 ]] && break
     done
     if [[ $nbt -lt ${MIN_SEEDS_COUNT} ]]; then
       echo "error: couldn't reach the min seeds count after $SECONDS sec, only $nbt tasks were found"
-      while [[ $nbt -lt ${MIN_SEEDS_COUNT} ]]; do
-        conts=$(curl -s rancher-metadata/latest/self/service/containers | cut -d = -f 2)
-        nbt=$(echo $conts | wc -w)
-        echo $conts
-        [[ $SECONDS -gt 30 ]] && break
-      done
-      if [[ $nbt -lt ${MIN_SEEDS_COUNT} ]]; then
-        echo "error: couldn't reach the min seeds count after $SECONDS sec, only $nbt tasks were found"
-      else
-        tips=""
-        for cont in $conts; do
-          ip=$(curl -s rancher-metadata/latest/containers/$cont/primary_ip)
-          tips="$tips $ip"
-          echo "Found $ip in rancher"
-        done
-      fi
+      exit 1
     else
       echo "$nbt seeds found"
     fi
@@ -105,21 +81,70 @@ if [[ $? -ne 0 ]]; then
       [[ -z "$INITIAL_CLUSTER" ]] && INITIAL_CLUSTER="$name=http://$tip:2380" || INITIAL_CLUSTER="$INITIAL_CLUSTER,$name=http://$tip:2380"
       if [[ "$cip" = "$tip" ]]; then
         NODE_NAME=$name
+      else
+        # check if a cluster already exists
+	echo "checking existing cluster with $name"
+        timeout -t 2 etcdctl --endpoints $tip:2379 get probe-members >/dev/null 2>&1 && INITIAL_CLUSTER_STATE=existing
       fi
     done
   else
       INITIAL_CLUSTER="default=http://$cip:2380"
   fi
-  echo "initial cluster is $INITIAL_CLUSTER"
-  if [[ -f "/backup/.force-restore" ]]; then
-    echo "Forcing restore of data from /backup/snapshot.db"
+  if [[ "$INITIAL_CLUSTER_STATE" = "existing" ]]; then
+    # first, remove dead members
+    peers=$(etcdctl --endpoints $SERVICE_NAME:2379 member list | cut -d, -f1,2,3,4 | tr -d ' ')
+    for p in $peers; do
+      peerURL=$(echo $p | cut -d, -f4)
+      [[ $peerURL = "http://$cip:2380" ]] && continue
+      peerID=$(echo $p | cut -d, -f1)
+      peerStatus=$(echo $p | cut -d, -f2)
+      peerName=$(echo $p | cut -d, -f3)
+      echo "checking peer $p"
+      curl -sf $peerURL/version >/dev/null
+      if [[ $? -ne 0 ]]; then
+        if [[ "x$peerStatus" = "xstarted" ]]; then
+          echo "peer check failed, attempting to remove ${peerName:-unknown} ($peerID)"
+	  etcdctl --endpoints $SERVICE_NAME:2379 member remove $peerID
+        fi
+        echo "peer check failed or peer not started, removing $peerID / $peerURL from initial cluster"
+	echo $INITIAL_CLUSTER | grep -q $peerURL &&
+	    INITIAL_CLUSTER=$(echo $INITIAL_CLUSTER | sed "s%[^,]*=${peerURL}%%" | sed "s/,$//" | sed "s/^,//" | sed "s/,,/,/")
+      else
+        echo "peer check successful for $peerName"
+      fi
+    done
+    # then, add the new node
+    echo "prepare this node as a new cluster member"
+    etcdctl --endpoints $SERVICE_NAME:2379 member add $NODE_NAME --peer-urls=http://$cip:2380
   fi
-  if [[ -f "/backup/.force-restore" ]]; then
-    ARGS="$ARGS --name $NODE_NAME --initial-advertise-peer-urls http://$cip:2380 --initial-cluster $INITIAL_CLUSTER --initial-cluster-token $INITIAL_CLUSTER_TOKEN --initial-cluster-state new"
-  else
-    ARGS="$ARGS --name $NODE_NAME --initial-advertise-peer-urls http://$cip:2380 --initial-cluster $INITIAL_CLUSTER --initial-cluster-token $INITIAL_CLUSTER_TOKEN --initial-cluster-state $INITIAL_CLUSTER_STATE"  
+  # to restore a db, create a temporary service with
+  #   restart condition = none
+  #   env var RESTORED_SERVICE = name of the permanent service (should be down)
+  #   mount the backup file on /backup.db
+  #   add the RESTORED_SERVICE name as alias on the network
+  if [[ -n "$RESTORED_SERVICE" ]]; then
+    if [[ ! -f /backup.db ]]; then
+      echo "/backup.db not found, abort"
+      exit 1
+    fi
+    INITIAL_CLUSTER_TOKEN=$RESTORED_SERVICE
+    echo "restoring snapshot..."
+    ETCDCTL_API=3 etcdctl snapshot restore /backup.db \
+      --name $NODE_NAME \
+      --initial-cluster $INITIAL_CLUSTER \
+      --initial-cluster-token $INITIAL_CLUSTER_TOKEN \
+      --initial-advertise-peer-urls http://$cip:2380 || exit 1
+    echo "done"
+    echo "starting etcd..."
+    etcd \
+      --name $NODE_NAME \
+      --listen-client-urls http://$cip:2379 \
+      --advertise-client-urls http://$RESTORED_SERVICE:2379 \
+      --listen-peer-urls http://$cip:2380
+    exit $?
   fi
-  RESTOREARGS="$RESTOREARGS --name $NODE_NAME --initial-advertise-peer-urls http://$cip:2380 --initial-cluster $INITIAL_CLUSTER --initial-cluster-token $INITIAL_CLUSTER_TOKEN --skip-hash-check"
+  echo "initial cluster is $INITIAL_CLUSTER ($INITIAL_CLUSTER_STATE)"
+  ARGS="$ARGS --name $NODE_NAME --initial-advertise-peer-urls http://$cip:2380 --initial-cluster $INITIAL_CLUSTER --initial-cluster-token $INITIAL_CLUSTER_TOKEN --initial-cluster-state $INITIAL_CLUSTER_STATE"
 fi
 echo "$@" | grep -q -- "-advertise-client-urls"
 if [[ $? -ne 0 ]]; then
@@ -156,18 +181,6 @@ if [[ -n "$TEST" ]]; then
   fi
 else
   if [ "${ARGS:0:1}" = '-' ]; then
-    if [[ -f "/backup/.force-restore" ]]; then
-      echo "Forcing restore of data from /backup/snapshot.db"
-      ETCDCTL_API=3 etcdctl snapshot restore /backup/snapshot.db $RESTOREARGS
-      if [ $? -ne 0 ]; then
-        echo "failed"
-        exit 1
-      fi
-      rm -Rf /data/*
-      mv /data-restore/* /data/.
-      rm -Rf /data-restore
-      rm /backup/.force-restore
-    fi
     exec flock -xn $LOCK_FILE /bin/etcd $ARGS
   else
     exec $ARGS
