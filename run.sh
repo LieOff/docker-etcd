@@ -103,6 +103,20 @@ if [[ $? -ne 0 ]]; then
     for tip in $tips; do
       name="${SERVICE_NAME}-${tip##*.}"
       [[ -z "$INITIAL_CLUSTER" ]] && INITIAL_CLUSTER="$name=http://$tip:2380" || INITIAL_CLUSTER="$INITIAL_CLUSTER,$name=http://$tip:2380"
+      echo "-----------grep----------------------"
+      echo $(grep $(hostname) /etc/hosts |awk '{print $1}' | head -1)
+      echo "--------------catEtc/Hosts------------------"      
+      cat /etc/hosts
+      echo "--------------hostname------------------"      
+      echo $(grep $(hostname))
+      echo "--------------cip------------------"
+      echo "$cip"
+      echo "--------------tip------------------"
+      echo "$tip"
+      echo "----------------endTip-----------------"  
+      echo "--------------dig------------------"
+      echo $(dig +short $SERVICE_NAME)
+      echo "-------------endDig----------------"      
       if [[ "$cip" = "$tip" ]]; then
         NODE_NAME=$name
       fi
@@ -137,6 +151,9 @@ if [[ $? -eq 0 ]]; then
   ARGS=$(echo $ARGS | sed 's/--test *//')
 fi
 
+echo "--------------------------------------------"
+echo $ARGS
+echo "--------------------------------------------"
 
 (sleep 3 && ETCDCTL_API=3 /bin/etcdctl put ping pong) &
 if [[ -n "$TEST" ]]; then
